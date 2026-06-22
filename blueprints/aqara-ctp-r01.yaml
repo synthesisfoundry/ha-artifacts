@@ -1,0 +1,426 @@
+blueprint:
+  name: "Aqara Cube T1 Pro — Z2M (CTP-R01)"
+  description: >
+    Full action coverage for the Aqara Cube T1 Pro (model CTP-R01) via
+    Zigbee2MQTT raw MQTT trigger. Works in both Scene Mode and Action Mode.
+    Triggering is mode-aware: Scene Mode slots only fire in scene_mode;
+    Action Mode slots only fire in action_mode. The four Action Mode-only
+    gestures (slide, tap, flip90, flip180) also enforce the mode check for
+    defensive correctness.
+
+    Rotation slots in both modes expose action_angle (degrees, signed:
+    positive = clockwise, negative = counter-clockwise) via the trigger
+    payload so you can pass it to scripts for proportional control (e.g.
+    adjust brightness by the exact number of degrees rotated).
+
+    SETUP — MQTT Topic: Open Zigbee2MQTT → your cube's device page → Exposes
+    tab and note the friendly name. Your MQTT topic is zigbee2mqtt/<name>.
+    Enter that exact string in the MQTT Topic field below. It is case-sensitive
+    and must contain no trailing slash.
+
+    SETUP — Mode switching: The cube ships in Scene Mode. To switch to Action
+    Mode, open the lid and press the LINK button 5× rapidly (hard switch,
+    takes effect immediately), or use the operation_mode toggle in the Z2M
+    Exposes tab (soft switch — takes up to 1 hour unless you throw the cube
+    or press LINK once to force it). Only fill in slots for the mode your
+    cube is currently in, or fill in both if you plan to switch modes.
+
+    Source — https://www.zigbee2mqtt.io/devices/CTP-R01.html
+
+  domain: automation
+  homeassistant:
+    min_version: "2024.6.0"
+  input:
+
+    # ─── Required ─────────────────────────────────────────────────────────────
+
+    required:
+      name: "Required ★"
+      icon: mdi:alert-box
+      input:
+        mqtt_topic:
+          name: "MQTT Topic"
+          description: >
+            The Zigbee2MQTT topic for this cube. Find it in Z2M → your cube's
+            device page → Exposes tab, then prepend zigbee2mqtt/ to the
+            friendly name. Example: zigbee2mqtt/AqaraCube. Must match exactly
+            — it is case-sensitive and must contain no trailing slash, no
+            spaces, and no special characters other than / and _.
+          default: "zigbee2mqtt/AqaraCube"
+          selector:
+            text:
+              multiline: false
+
+    # ─── Scene Mode actions ───────────────────────────────────────────────────
+    # The cube's default mode out of the box.
+    # Tracks which face is up (side 1–6) and fires on orientation-based
+    # gestures. Rotate, shake, throw, hold, and flip gestures are available.
+    # All slots are optional — leave any slot empty to ignore that gesture.
+
+    scene_mode:
+      name: "Scene Mode actions 🎲"
+      icon: mdi:cube-outline
+      collapsed: true
+      input:
+
+        scene_rotate_left:
+          name: "↺ Rotate left — Scene Mode (counter-clockwise)"
+          description: >
+            Fires when the cube is rotated counter-clockwise while resting on
+            any face. The exact rotation amount is available in your action via
+            {{ trigger.payload_json.action_angle }} — a negative float in
+            degrees (e.g. -42.5 means 42.5° counter-clockwise). Use this to
+            drive proportional control: pass action_angle to a script that
+            adjusts brightness, volume, or temperature by exactly that many
+            degrees. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_rotate_right:
+          name: "↻ Rotate right — Scene Mode (clockwise)"
+          description: >
+            Fires when the cube is rotated clockwise while resting on any face.
+            The exact rotation amount is available in your action via
+            {{ trigger.payload_json.action_angle }} — a positive float in
+            degrees (e.g. 42.5 means 42.5° clockwise). Use this to drive
+            proportional control: pass action_angle to a script that adjusts
+            brightness, volume, or temperature by exactly that many degrees.
+            Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_shake:
+          name: "〰 Shake — Scene Mode"
+          description: >
+            Fires when the cube is picked up and shaken. No directional or face
+            payload is included — it is a simple impulse gesture. Good for
+            toggle actions such as turning a light on or off, or triggering a
+            scene. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_throw:
+          name: "💨 Throw — Scene Mode"
+          description: >
+            Fires on a sharp, forceful shake with no backward motion — the
+            gesture resembles a short throw or flick. No extra payload beyond
+            the current face. Note: throwing the cube is also one way to force
+            a pending mode-switch to take effect immediately, so avoid binding
+            critical actions here if you switch modes regularly. Leave empty to
+            ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_hold:
+          name: "✋ Hold — Scene Mode"
+          description: >
+            Fires when the cube is picked up and held motionless for a brief
+            moment. Useful for grab-to-pause actions or entering an edit state.
+            No extra payload is included. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_side_up:
+          name: "⬆ Side up — Scene Mode (face settled)"
+          description: >
+            Fires when the cube comes to rest on a new face after any movement.
+            The face number (1–6) that is now facing up is available in your
+            action via {{ trigger.payload_json.side }}. This is the primary
+            context-setting gesture in Scene Mode — for example, face 1 =
+            Living Room, face 2 = Bedroom, etc. Fires after the cube fully
+            settles, not mid-motion. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_flip_to_side:
+          name: "🔄 Flip to side — Scene Mode (mid-flip)"
+          description: >
+            Fires during a flip gesture as the cube transitions to a new face,
+            before it has fully settled. The destination face (1–6) is
+            available in your action via {{ trigger.payload_json.side }}.
+            Distinct from Side Up — this fires earlier in the motion and is
+            useful when you want faster response without waiting for the cube
+            to come to rest. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        scene_1_min_inactivity:
+          name: "💤 1 minute inactivity — Scene Mode"
+          description: >
+            Fires after the cube has been untouched for exactly 1 minute. No
+            extra payload is included. Useful for auto-off routines, resetting
+            a scene, or sending an idle notification. Leave empty to ignore
+            this event.
+          default: []
+          selector:
+            action: {}
+
+    # ─── Action Mode actions ──────────────────────────────────────────────────
+    # Must be enabled by switching the cube out of Scene Mode (see blueprint
+    # description for instructions). Offers a richer gesture vocabulary
+    # including slide, tap, and directional flips. Does not track face-as-
+    # context the way Scene Mode does.
+    # All slots are optional — leave any slot empty to ignore that gesture.
+
+    action_mode:
+      name: "Action Mode actions 🎯"
+      icon: mdi:gesture
+      collapsed: true
+      input:
+
+        action_rotate_left:
+          name: "↺ Rotate left — Action Mode (counter-clockwise)"
+          description: >
+            Fires when the cube is rotated counter-clockwise in Action Mode.
+            The exact rotation amount is available in your action via
+            {{ trigger.payload_json.action_angle }} — a negative float in
+            degrees (e.g. -42.5 means 42.5° counter-clockwise). Use this to
+            drive proportional control: pass action_angle to a script that
+            adjusts brightness, volume, or temperature by exactly that many
+            degrees. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_rotate_right:
+          name: "↻ Rotate right — Action Mode (clockwise)"
+          description: >
+            Fires when the cube is rotated clockwise in Action Mode. The exact
+            rotation amount is available in your action via
+            {{ trigger.payload_json.action_angle }} — a positive float in
+            degrees (e.g. 42.5 means 42.5° clockwise). Use this to drive
+            proportional control: pass action_angle to a script that adjusts
+            brightness, volume, or temperature by exactly that many degrees.
+            Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_shake:
+          name: "〰 Shake — Action Mode"
+          description: >
+            Fires when the cube is shaken in Action Mode. No directional or
+            face payload is included. Good for simple toggle actions such as
+            turning a light on or off, or triggering a scene. Leave empty to
+            ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_throw:
+          name: "💨 Throw — Action Mode"
+          description: >
+            Fires on a sharp, forceful shake with no backward motion in Action
+            Mode — the gesture resembles a short throw or flick. No extra
+            payload is included. Note: throwing the cube is also one way to
+            force a pending mode-switch to take effect immediately, so avoid
+            binding critical actions here if you switch modes regularly. Leave
+            empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_slide:
+          name: "➡ Slide — Action Mode"
+          description: >
+            Fires when the cube is slid along a surface in Action Mode. The
+            face that was facing up during the slide (1–6) is available in
+            your action via {{ trigger.payload_json.side }}. Useful for
+            directional swipe-style commands. Leave empty to ignore this
+            gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_tap:
+          name: "👆 Tap — Action Mode"
+          description: >
+            Fires when the cube is tapped or knocked against a surface in
+            Action Mode. The face that was facing up when tapped (1–6) is
+            available in your action via {{ trigger.payload_json.side }}.
+            Useful for a quick confirm or next-track style command. Leave empty
+            to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_flip90:
+          name: "↗ Flip 90° — Action Mode"
+          description: >
+            Fires when the cube is flipped 90 degrees onto an adjacent face in
+            Action Mode. Two payload values are available in your action:
+            {{ trigger.payload_json.side }} is the destination face (1–6) that
+            is now facing up, and {{ trigger.payload_json.action_from_side }}
+            is the origin face (1–6) that was facing up before the flip. Using
+            both values lets you create directional flip mappings — for example,
+            face 1 → face 2 could mean next track, face 2 → face 1 could mean
+            previous track. Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_flip180:
+          name: "↕ Flip 180° — Action Mode"
+          description: >
+            Fires when the cube is flipped fully over 180 degrees to the
+            opposite face in Action Mode. Two payload values are available in
+            your action: {{ trigger.payload_json.side }} is the destination
+            face (1–6) now facing up, and
+            {{ trigger.payload_json.action_from_side }} is the origin face
+            (1–6) that was facing up before the flip. Because this is a full
+            inversion, origin and destination are always opposite faces.
+            Leave empty to ignore this gesture.
+          default: []
+          selector:
+            action: {}
+
+        action_1_min_inactivity:
+          name: "💤 1 minute inactivity — Action Mode"
+          description: >
+            Fires after the cube has been untouched for exactly 1 minute in
+            Action Mode. No extra payload is included. Useful for auto-off
+            routines, resetting a scene, or sending an idle notification.
+            Leave empty to ignore this event.
+          default: []
+          selector:
+            action: {}
+
+# ─── Trigger ──────────────────────────────────────────────────────────────────
+# Single raw MQTT trigger on the cube's Z2M topic. Using !input here (not a
+# Jinja2 template) is required — MQTT trigger topics must be static strings
+# resolved at instantiation time, not evaluated at runtime.
+
+trigger:
+  - platform: mqtt
+    topic: !input mqtt_topic
+    id: cube_event
+
+# ─── Variables ────────────────────────────────────────────────────────────────
+# All values are extracted from the MQTT JSON payload with safe defaults.
+# action defaults to '' so the guard condition below correctly blocks
+# messages that carry no action field (e.g. state reports, pairing events).
+# side and action_from_side default to 0; action_angle defaults to 0.0.
+
+variables:
+  action: "{{ trigger.payload_json.action | default('') }}"
+  operation_mode: "{{ trigger.payload_json.operation_mode | default('') }}"
+  side: "{{ trigger.payload_json.side | default(0) | int }}"
+  action_from_side: "{{ trigger.payload_json.action_from_side | default(0) | int }}"
+  action_angle: "{{ trigger.payload_json.action_angle | default(0) | float }}"
+
+# ─── Conditions ───────────────────────────────────────────────────────────────
+# Block any MQTT message that does not carry a non-empty action string.
+# This filters out Z2M state reports, pairing events, and OTA messages that
+# publish to the same topic but have no action field.
+
+condition:
+  - condition: trigger
+    id: cube_event
+  - condition: template
+    value_template: "{{ action | length > 0 }}"
+
+# ─── Actions ──────────────────────────────────────────────────────────────────
+# Each branch checks both action and operation_mode. Action Mode-only gestures
+# (slide, tap, flip90, flip180) also enforce the mode check for defensive
+# correctness — they are physically impossible in Scene Mode but the check
+# ensures a future Z2M firmware change or unexpected payload cannot fire the
+# wrong slot. Branches with an empty !input sequence are a no-op in HA.
+
+action:
+  - choose:
+
+      # ── Scene Mode ────────────────────────────────────────────────────────
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'rotate_left' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_rotate_left
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'rotate_right' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_rotate_right
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'shake' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_shake
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'throw' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_throw
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'hold' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_hold
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'side_up' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_side_up
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'flip_to_side' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_flip_to_side
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == '1_min_inactivity' and operation_mode == 'scene_mode' }}"
+        sequence: !input scene_1_min_inactivity
+
+      # ── Action Mode ───────────────────────────────────────────────────────
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'rotate_left' and operation_mode == 'action_mode' }}"
+        sequence: !input action_rotate_left
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'rotate_right' and operation_mode == 'action_mode' }}"
+        sequence: !input action_rotate_right
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'shake' and operation_mode == 'action_mode' }}"
+        sequence: !input action_shake
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'throw' and operation_mode == 'action_mode' }}"
+        sequence: !input action_throw
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'slide' and operation_mode == 'action_mode' }}"
+        sequence: !input action_slide
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'tap' and operation_mode == 'action_mode' }}"
+        sequence: !input action_tap
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'flip90' and operation_mode == 'action_mode' }}"
+        sequence: !input action_flip90
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'flip180' and operation_mode == 'action_mode' }}"
+        sequence: !input action_flip180
+
+      - conditions:
+          - condition: template
+            value_template: "{{ action == '1_min_inactivity' and operation_mode == 'action_mode' }}"
+        sequence: !input action_1_min_inactivity
