@@ -1,5 +1,5 @@
 blueprint:
-  name: "Aqara Cube T1 Pro — Z2M (CTP-R01)"
+  name: "Aqara Cube T1 Pro (CTP-R01) via Zigbee2MQTT"
   description: >
     Full action coverage for the Aqara Cube T1 Pro (model CTP-R01) via
     Zigbee2MQTT raw MQTT trigger. Works in both Scene Mode and Action Mode.
@@ -10,20 +10,39 @@ blueprint:
 
     Rotation slots in both modes expose action_angle (degrees, signed:
     positive = clockwise, negative = counter-clockwise) via the trigger
-    payload so you can pass it to scripts for proportional control (e.g.
-    adjust brightness by the exact number of degrees rotated).
+    payload so you can pass it to scripts for proportional control. NOTE:
+    a continuous turn emits a BURST of events, each carrying a PARTIAL angle
+    (a delta), not a single summed total. If you drive proportional control
+    from action_angle, accumulate or rate-limit across the burst rather than
+    treating each event as one absolute step. See the rotate slot
+    descriptions for detail.
 
     SETUP — MQTT Topic: Open Zigbee2MQTT → your cube's device page → Exposes
     tab and note the friendly name. Your MQTT topic is zigbee2mqtt/<name>.
     Enter that exact string in the MQTT Topic field below. It is case-sensitive
-    and must contain no trailing slash.
+    and must contain no trailing slash. (Friendly names with spaces are valid
+    — e.g. zigbee2mqtt/Office Cube Controller — but avoid them if you can, as
+    spaces in topics are easy to mistype.)
 
     SETUP — Mode switching: The cube ships in Scene Mode. To switch to Action
     Mode, open the lid and press the LINK button 5× rapidly (hard switch,
-    takes effect immediately), or use the operation_mode toggle in the Z2M
-    Exposes tab (soft switch — takes up to 1 hour unless you throw the cube
-    or press LINK once to force it). Only fill in slots for the mode your
-    cube is currently in, or fill in both if you plan to switch modes.
+    takes effect immediately and is the recommended method), or use the
+    operation_mode toggle in the Z2M Exposes tab (soft switch — takes up to
+    1 hour unless you throw the cube or press LINK once to force it). The
+    throw gesture is unreliable to perform on demand (see below), so prefer
+    the hard switch. After switching, confirm the new mode by watching your
+    Z2M log: every action payload includes "operation_mode":"scene_mode" or
+    "action_mode" — that is the authoritative check, not the frontend toggle
+    position. Only fill in slots for the mode your cube is currently in, or
+    fill in both if you plan to switch modes.
+
+    NOTE — Coexisting GUI device triggers: Zigbee2MQTT also publishes Home
+    Assistant device-automation discovery configs for this cube (you will see
+    homeassistant/device_automation/<ieee>/action_*/config messages in the
+    Z2M log). That means the same gestures are ALSO available as GUI device
+    triggers in HA. Do NOT bind the same gesture both here and via a GUI
+    device trigger, or it will fire twice. This blueprint deliberately uses
+    the raw MQTT topic for durability; pick one mechanism per gesture.
 
     Source — https://www.zigbee2mqtt.io/devices/CTP-R01.html
 
@@ -44,8 +63,11 @@ blueprint:
             The Zigbee2MQTT topic for this cube. Find it in Z2M → your cube's
             device page → Exposes tab, then prepend zigbee2mqtt/ to the
             friendly name. Example: zigbee2mqtt/AqaraCube. Must match exactly
-            — it is case-sensitive and must contain no trailing slash, no
-            spaces, and no special characters other than / and _.
+            — it is case-sensitive and must contain no trailing slash. If your
+            friendly name contains spaces, include them exactly as shown in
+            Z2M. IMPORTANT: the default below is a placeholder — if you leave
+            it unchanged it will silently match nothing. Replace it with your
+            cube's real topic.
           default: "zigbee2mqtt/AqaraCube"
           selector:
             text:
@@ -67,12 +89,14 @@ blueprint:
           name: "↺ Rotate left — Scene Mode (counter-clockwise)"
           description: >
             Fires when the cube is rotated counter-clockwise while resting on
-            any face. The exact rotation amount is available in your action via
+            any face. The rotation amount is available in your action via
             {{ trigger.payload_json.action_angle }} — a negative float in
-            degrees (e.g. -42.5 means 42.5° counter-clockwise). Use this to
-            drive proportional control: pass action_angle to a script that
-            adjusts brightness, volume, or temperature by exactly that many
-            degrees. Leave empty to ignore this gesture.
+            degrees (e.g. -42.5 means 42.5° counter-clockwise). IMPORTANT: a
+            continuous turn emits SEVERAL events in quick succession, each
+            carrying a PARTIAL angle (a delta of the turn so far), not one
+            summed total. For proportional control, accumulate these deltas or
+            rate-limit in your script — do not treat each event as a single
+            absolute step. Leave empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -81,11 +105,13 @@ blueprint:
           name: "↻ Rotate right — Scene Mode (clockwise)"
           description: >
             Fires when the cube is rotated clockwise while resting on any face.
-            The exact rotation amount is available in your action via
+            The rotation amount is available in your action via
             {{ trigger.payload_json.action_angle }} — a positive float in
-            degrees (e.g. 42.5 means 42.5° clockwise). Use this to drive
-            proportional control: pass action_angle to a script that adjusts
-            brightness, volume, or temperature by exactly that many degrees.
+            degrees (e.g. 42.5 means 42.5° clockwise). IMPORTANT: a continuous
+            turn emits SEVERAL events in quick succession, each carrying a
+            PARTIAL angle (a delta of the turn so far), not one summed total.
+            For proportional control, accumulate these deltas or rate-limit in
+            your script — do not treat each event as a single absolute step.
             Leave empty to ignore this gesture.
           default: []
           selector:
@@ -97,7 +123,9 @@ blueprint:
             Fires when the cube is picked up and shaken. No directional or face
             payload is included — it is a simple impulse gesture. Good for
             toggle actions such as turning a light on or off, or triggering a
-            scene. Leave empty to ignore this gesture.
+            scene. Note: a too-gentle "throw" attempt is usually classified as
+            a shake, so this gesture can fire when you meant to throw. Leave
+            empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -105,11 +133,12 @@ blueprint:
         scene_throw:
           name: "💨 Throw — Scene Mode"
           description: >
-            Fires on a sharp, forceful shake with no backward motion — the
-            gesture resembles a short throw or flick. No extra payload beyond
-            the current face. Note: throwing the cube is also one way to force
-            a pending mode-switch to take effect immediately, so avoid binding
-            critical actions here if you switch modes regularly. Leave empty to
+            Fires on a single sharp thrust with no backward/recoil motion — a
+            flick that stops dead, distinct from a back-and-forth shake.
+            WARNING: this gesture is genuinely hard to trigger on demand; most
+            attempts register as Shake instead. Do NOT bind important actions
+            here. (It is also one way to force a pending soft mode-switch to
+            take effect, which is the main reason it exists.) Leave empty to
             ignore this gesture.
           default: []
           selector:
@@ -146,7 +175,10 @@ blueprint:
             available in your action via {{ trigger.payload_json.side }}.
             Distinct from Side Up — this fires earlier in the motion and is
             useful when you want faster response without waiting for the cube
-            to come to rest. Leave empty to ignore this gesture.
+            to come to rest. Note: a single flip often produces BOTH a
+            flip_to_side and a subsequent side_up event; if you bind both,
+            expect two fires per physical flip. Leave empty to ignore this
+            gesture.
           default: []
           selector:
             action: {}
@@ -179,12 +211,13 @@ blueprint:
           name: "↺ Rotate left — Action Mode (counter-clockwise)"
           description: >
             Fires when the cube is rotated counter-clockwise in Action Mode.
-            The exact rotation amount is available in your action via
+            The rotation amount is available in your action via
             {{ trigger.payload_json.action_angle }} — a negative float in
-            degrees (e.g. -42.5 means 42.5° counter-clockwise). Use this to
-            drive proportional control: pass action_angle to a script that
-            adjusts brightness, volume, or temperature by exactly that many
-            degrees. Leave empty to ignore this gesture.
+            degrees (e.g. -42.5 means 42.5° counter-clockwise). IMPORTANT: a
+            continuous turn emits SEVERAL events in quick succession, each
+            carrying a PARTIAL angle (a delta of the turn so far), not one
+            summed total. For proportional control, accumulate these deltas or
+            rate-limit in your script. Leave empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -192,13 +225,14 @@ blueprint:
         action_rotate_right:
           name: "↻ Rotate right — Action Mode (clockwise)"
           description: >
-            Fires when the cube is rotated clockwise in Action Mode. The exact
+            Fires when the cube is rotated clockwise in Action Mode. The
             rotation amount is available in your action via
             {{ trigger.payload_json.action_angle }} — a positive float in
-            degrees (e.g. 42.5 means 42.5° clockwise). Use this to drive
-            proportional control: pass action_angle to a script that adjusts
-            brightness, volume, or temperature by exactly that many degrees.
-            Leave empty to ignore this gesture.
+            degrees (e.g. 42.5 means 42.5° clockwise). IMPORTANT: a continuous
+            turn emits SEVERAL events in quick succession, each carrying a
+            PARTIAL angle (a delta of the turn so far), not one summed total.
+            For proportional control, accumulate these deltas or rate-limit in
+            your script. Leave empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -208,8 +242,9 @@ blueprint:
           description: >
             Fires when the cube is shaken in Action Mode. No directional or
             face payload is included. Good for simple toggle actions such as
-            turning a light on or off, or triggering a scene. Leave empty to
-            ignore this gesture.
+            turning a light on or off, or triggering a scene. Note: a
+            too-gentle "throw" attempt is usually classified as a shake. Leave
+            empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -217,12 +252,11 @@ blueprint:
         action_throw:
           name: "💨 Throw — Action Mode"
           description: >
-            Fires on a sharp, forceful shake with no backward motion in Action
-            Mode — the gesture resembles a short throw or flick. No extra
-            payload is included. Note: throwing the cube is also one way to
-            force a pending mode-switch to take effect immediately, so avoid
-            binding critical actions here if you switch modes regularly. Leave
-            empty to ignore this gesture.
+            Fires on a single sharp thrust with no backward/recoil motion in
+            Action Mode — a flick that stops dead, distinct from a
+            back-and-forth shake. WARNING: this gesture is genuinely hard to
+            trigger on demand; most attempts register as Shake instead. Do NOT
+            bind important actions here. Leave empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -260,7 +294,7 @@ blueprint:
             is now facing up, and {{ trigger.payload_json.action_from_side }}
             is the origin face (1–6) that was facing up before the flip. Using
             both values lets you create directional flip mappings — for example,
-            face 1 → face 2 could mean next track, face 2 → face 1 could mean
+            face 4 → face 2 could mean next track, face 2 → face 4 could mean
             previous track. Leave empty to ignore this gesture.
           default: []
           selector:
@@ -275,8 +309,10 @@ blueprint:
             face (1–6) now facing up, and
             {{ trigger.payload_json.action_from_side }} is the origin face
             (1–6) that was facing up before the flip. Because this is a full
-            inversion, origin and destination are always opposite faces.
-            Leave empty to ignore this gesture.
+            inversion, origin and destination are the cube's opposite-face
+            pair (e.g. 5 ↔ 2). If you map specific faces, confirm your own
+            cube's opposite-face pairings from the Z2M log rather than
+            assuming a fixed numbering. Leave empty to ignore this gesture.
           default: []
           selector:
             action: {}
@@ -306,7 +342,10 @@ trigger:
 # All values are extracted from the MQTT JSON payload with safe defaults.
 # action defaults to '' so the guard condition below correctly blocks
 # messages that carry no action field (e.g. state reports, pairing events).
-# side and action_from_side default to 0; action_angle defaults to 0.0.
+# Note: in firmware where action is present but its non-action attributes are
+# null (e.g. shake/tap carry action_angle: null), the | default() filters
+# below coerce those nulls to the documented sentinels. side and
+# action_from_side default to 0; action_angle defaults to 0.0.
 
 variables:
   action: "{{ trigger.payload_json.action | default('') }}"
@@ -327,11 +366,13 @@ condition:
     value_template: "{{ action | length > 0 }}"
 
 # ─── Actions ──────────────────────────────────────────────────────────────────
-# Each branch checks both action and operation_mode. Action Mode-only gestures
-# (slide, tap, flip90, flip180) also enforce the mode check for defensive
-# correctness — they are physically impossible in Scene Mode but the check
-# ensures a future Z2M firmware change or unexpected payload cannot fire the
-# wrong slot. Branches with an empty !input sequence are a no-op in HA.
+# Each branch checks both action and operation_mode. operation_mode is present
+# on every action payload on current firmware (confirmed on installed_version
+# 28), so this gating is reliable. Action Mode-only gestures (slide, tap,
+# flip90, flip180) also enforce the mode check for defensive correctness —
+# they are physically impossible in Scene Mode but the check ensures a future
+# Z2M firmware change or unexpected payload cannot fire the wrong slot.
+# Branches with an empty !input sequence are a no-op in HA.
 
 action:
   - choose:
